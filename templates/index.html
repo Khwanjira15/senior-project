@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chest X-Ray Attention Demo</title>
+    <link rel="stylesheet" href="../static/style.css">
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Clinical AI Interface</p>
+          <h1>ระบบวิเคราะห์ภาพทรวงอกด้วย AI พร้อมผลอธิบายการตัดสินใจของโมเดล</h1>
+          <p class="intro">
+            ออกแบบสำหรับการสาธิตงานวิจัยทางการแพทย์ โดยให้ผู้ใช้เลือก backbone model,
+            เปรียบเทียบ baseline กับ attention mechanism และดูผลอธิบายเชิงภาพจาก CAM
+            ในหน้าเดียวอย่างเป็นระเบียบ
+          </p>
+        </div>
+
+        <div class="hero-metrics" aria-label="System highlights">
+          <article class="metric-tile">
+            <span class="metric-value">6</span>
+            <span class="metric-label">Backbone Models</span>
+          </article>
+          <article class="metric-tile">
+            <span class="metric-value">6</span>
+            <span class="metric-label">Attention Modes</span>
+          </article>
+          <article class="metric-tile">
+            <span class="metric-value">3</span>
+            <span class="metric-label">Explainability Maps</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <form id="predict-form" class="control-panel">
+          <div class="panel-heading">
+            <p class="panel-kicker">Configuration</p>
+            <h2>ตั้งค่าการรันโมเดล</h2>
+            <p class="panel-copy">เลือกไฟล์ภาพและโครงแบบโมเดลที่ต้องการเปรียบเทียบ ก่อนส่งเข้าระบบวิเคราะห์</p>
+          </div>
+
+          <label class="field">
+            <span>อัปโหลดภาพหลายไฟล์</span>
+            <input type="file" name="image" id="image-input" accept=".png,.jpg,.jpeg,.jpe,.jfif,.bmp,.dib,.tif,.tiff,.webp,.gif,.heic,.heif,.avif,.pdf,.dcm,.dicom,.ima" multiple>
+          </label>
+
+          <label class="field">
+            <span>เลือกโมเดล</span>
+            <select name="model" id="model-select">
+              <option value="ResNet50">ResNet50</option>
+              <option value="DenseNet121">DenseNet121</option>
+              <option value="EfficientNet-B0">EfficientNet-B0</option>
+              <option value="MobileNet">MobileNetV2</option>
+              <option value="MobileNetV3-Large">MobileNetV3-Large</option>
+              <option value="EfficientNetV2-S">EfficientNetV2-S</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>เลือก Attention</span>
+            <select name="attention" id="attention-select">
+              <option value="Baseline">Baseline</option>
+              <option value="SE">SE</option>
+              <option value="CBAM">CBAM</option>
+              <option value="ECA">ECA</option>
+              <option value="BAM">BAM</option>
+              <option value="CoordAtt">CoordAtt</option>
+            </select>
+          </label>
+
+          <div class="support-card">
+            <strong>Supported Inputs</strong>
+            <p>PNG, JPG, TIFF, BMP, WEBP, HEIC, PDF และ DICOM (.dcm, .dicom, .ima)</p>
+          </div>
+
+          <div class="support-card support-card-secondary">
+            <strong>Batch Mode</strong>
+            <p>สามารถเลือกหลายรูปพร้อมกันในครั้งเดียว และคลิกดูผลแต่ละรูปจากรายการด้านขวา</p>
+          </div>
+
+          <button type="submit" id="submit-button">Run Inference</button>
+          <p class="status" id="status-text"></p>
+        </form>
+
+        <section class="results-panel">
+          <div class="summary-card" id="summary-card">
+            <div class="card-header">
+              <div>
+                <p class="summary-label">Prediction Summary</p>
+                <h2 id="predicted-class">ยังไม่มีผลลัพธ์</h2>
+              </div>
+              <div class="status-chip">Ready</div>
+            </div>
+            <p id="prediction-confidence">อัปโหลดภาพแล้วกด Run Inference</p>
+          </div>
+
+          <div class="insight-strip">
+            <article class="insight-card">
+              <span class="insight-title">Workflow</span>
+              <p>Upload, classify, explain</p>
+            </article>
+            <article class="insight-card">
+              <span class="insight-title">Use Case</span>
+              <p>เปรียบเทียบโมเดลและ attention อย่างเป็นระบบ</p>
+            </article>
+          </div>
+
+          <div class="probability-card">
+            <div class="card-header">
+              <h3>Class Probabilities</h3>
+              <span class="card-badge">Softmax</span>
+            </div>
+            <div id="probability-list" class="probability-list"></div>
+          </div>
+
+          <div class="probability-card">
+            <div class="card-header">
+              <h3>Batch Results</h3>
+              <span class="card-badge" id="batch-count-badge">0 Files</span>
+            </div>
+            <div id="batch-results" class="batch-results"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="gallery-grid">
+        <article class="gallery-card">
+          <div class="card-header">
+            <h3>Input Preview</h3>
+            <span class="card-badge">Original</span>
+          </div>
+          <img id="preview-image" alt="Input preview">
+        </article>
+
+        <article class="gallery-card">
+          <div class="card-header">
+            <h3>GradCAM</h3>
+            <span class="card-badge">Localization</span>
+          </div>
+          <img id="gradcam-image" alt="GradCAM visualization">
+        </article>
+
+        <article class="gallery-card">
+          <div class="card-header">
+            <h3>GradCAM++</h3>
+            <span class="card-badge">Refined</span>
+          </div>
+          <img id="gradcampp-image" alt="GradCAM++ visualization">
+        </article>
+
+        <article class="gallery-card">
+          <div class="card-header">
+            <h3>ScoreCAM</h3>
+            <span class="card-badge">Score-based</span>
+          </div>
+          <img id="scorecam-image" alt="ScoreCAM visualization">
+        </article>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("predict-form");
+      const statusText = document.getElementById("status-text");
+      const predictedClass = document.getElementById("predicted-class");
+      const predictionConfidence = document.getElementById("prediction-confidence");
+      const probabilityList = document.getElementById("probability-list");
+      const submitButton = document.getElementById("submit-button");
+      const batchResults = document.getElementById("batch-results");
+      const batchCountBadge = document.getElementById("batch-count-badge");
+
+      const previewImage = document.getElementById("preview-image");
+      const gradcamImage = document.getElementById("gradcam-image");
+      const gradcamppImage = document.getElementById("gradcampp-image");
+      const scorecamImage = document.getElementById("scorecam-image");
+
+      const isFileProtocol = window.location.protocol === "file:";
+
+      function setStatus(message, isError = false) {
+        statusText.textContent = message;
+        statusText.dataset.error = isError ? "true" : "false";
+      }
+
+      if (isFileProtocol) {
+        setStatus("ตอนนี้คุณเปิดไฟล์ HTML ตรง ๆ อยู่ ดีไซน์จะแสดงได้ แต่ถ้าต้องการให้ปุ่ม Run Inference ทำงาน ต้องเปิดผ่าน Flask server เช่น http://127.0.0.1:5000", true);
+      }
+
+      function renderSelectedResult(result) {
+        predictedClass.textContent = result.predictedClass;
+        predictionConfidence.textContent = `${result.filename} • Confidence ${(result.confidence * 100).toFixed(2)}%`;
+        renderProbabilities(result.probabilities);
+        previewImage.src = result.previewImage;
+        gradcamImage.src = result.cams.gradcam;
+        gradcamppImage.src = result.cams.gradcampp;
+        scorecamImage.src = result.cams.scorecam;
+      }
+
+      function renderBatchResults(results) {
+        batchResults.innerHTML = "";
+        batchCountBadge.textContent = `${results.length} Files`;
+
+        results.forEach((result, index) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "batch-item";
+          button.innerHTML = `
+            <span class="batch-item-name">${result.filename}</span>
+            <span class="batch-item-meta">${result.predictedClass} • ${(result.confidence * 100).toFixed(2)}%</span>
+          `;
+          button.addEventListener("click", () => {
+            document.querySelectorAll(".batch-item").forEach((item) => item.classList.remove("is-active"));
+            button.classList.add("is-active");
+            renderSelectedResult(result);
+          });
+
+          if (index === 0) {
+            button.classList.add("is-active");
+          }
+
+          batchResults.appendChild(button);
+        });
+      }
+
+      function renderProbabilities(probabilities) {
+        probabilityList.innerHTML = "";
+        Object.entries(probabilities).forEach(([label, value]) => {
+          const row = document.createElement("div");
+          row.className = "probability-row";
+
+          const labelNode = document.createElement("span");
+          labelNode.textContent = label;
+
+          const valueNode = document.createElement("strong");
+          valueNode.textContent = `${(value * 100).toFixed(2)}%`;
+
+          const bar = document.createElement("div");
+          bar.className = "probability-bar";
+
+          const fill = document.createElement("div");
+          fill.className = "probability-fill";
+          fill.style.width = `${Math.max(value * 100, 2)}%`;
+          bar.appendChild(fill);
+
+          row.appendChild(labelNode);
+          row.appendChild(valueNode);
+          probabilityList.appendChild(row);
+          probabilityList.appendChild(bar);
+        });
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const formData = new FormData(form);
+
+        if (isFileProtocol) {
+          setStatus("Run Inference ใช้งานไม่ได้ในโหมด file:// กรุณารัน Flask server แล้วเปิดผ่าน http://127.0.0.1:5000", true);
+          return;
+        }
+
+        submitButton.disabled = true;
+        setStatus("กำลังรันโมเดลและสร้าง CAM สำหรับหลายไฟล์อยู่ค่ะ...");
+
+        try {
+          const response = await fetch("/api/predict", {
+            method: "POST",
+            body: formData
+          });
+
+          const result = await response.json();
+          if (!response.ok) {
+            throw new Error(result.error || "Prediction failed");
+          }
+
+          renderBatchResults(result.results);
+          renderSelectedResult(result.results[0]);
+          setStatus(`รันเสร็จแล้วทั้งหมด ${result.count} ไฟล์ สามารถกดดูผลแต่ละรูปจากรายการด้านขวาได้`);
+        } catch (error) {
+          setStatus(error.message, true);
+        } finally {
+          submitButton.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
