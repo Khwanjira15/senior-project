@@ -6,5 +6,6 @@ opencv-python-headless==4.10.0.84
 Pillow==12.1.1
 pillow-heif>=0.18.0
 pydicom>=3.0.1
+streamlit>=1.47.0
 torch==2.11.0
 torchvision==0.26.0

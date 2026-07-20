@@ -851,6 +851,14 @@ def save_upload_to_temp(file_storage) -> Path:
     return ensure_supported_image(upload_path)
 
 
+def save_named_bytes_to_temp(filename: str, data: bytes) -> Path:
+    suffix = Path(filename or "upload.png").suffix or ".png"
+    temp_dir = Path(tempfile.mkdtemp(prefix="senior-project-upload-"))
+    upload_path = temp_dir / f"input{suffix.lower()}"
+    upload_path.write_bytes(data)
+    return ensure_supported_image(upload_path)
+
+
 def predict_image(image_path: Path, model_name: str, attention_type: str) -> PredictionResult:
     model, last_conv = load_model(model_name, attention_type)
     pil_img, _ = get_focused_image_and_mask(image_path)
