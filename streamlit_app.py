@@ -7,7 +7,15 @@ from pathlib import Path
 
 import streamlit as st
 
-from inference_service import ATTENTION_TYPES, MODEL_OPTIONS, predict_image, save_named_bytes_to_temp
+from inference_service import (
+    ATTENTION_TYPES,
+    MODEL_OPTIONS,
+    get_available_model_configs,
+    get_model_label,
+    get_recommended_model_config,
+    predict_image,
+    save_named_bytes_to_temp,
+)
 
 
 st.set_page_config(
@@ -180,6 +188,37 @@ def render_hero():
     )
 
 
+def render_deployment_help():
+    recommended = get_recommended_model_config()
+    st.error("แอปออนไลน์ยังไม่มีไฟล์น้ำหนักโมเดล จึงยังไม่สามารถรันผลทำนายได้ค่ะ")
+
+    if recommended:
+        st.markdown(
+            f"""
+            <div class="sidebar-note">
+              <strong>ไฟล์ที่แนะนำให้อัปขึ้น GitHub ก่อน</strong><br>
+              {recommended["checkpoint_path"].as_posix()}<br><br>
+              เมื่อ push ไฟล์นี้ขึ้น repository แล้ว Streamlit Cloud จะสามารถรันชุด
+              <strong>{recommended["model_label"]} + {recommended["attention_type"]}</strong> ได้ทันที
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            """
+            <div class="sidebar-note">
+              <strong>ยังไม่พบ checkpoint ในโปรเจคนี้</strong><br>
+              ต้องเพิ่มไฟล์น้ำหนักโมเดลอย่างน้อย 1 ชุด เช่น
+              <code>Results_PyTorch_Attention4/MobileNet_ECA/MobileNet_final.pth</code>
+              หรือ <code>Results_PyTorch_Baseline4/MobileNet_Baseline/MobileNet_final.pth</code>
+              ก่อนแอปออนไลน์จะรัน inference ได้
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
 def run_batch_prediction(uploaded_files, model_name: str, attention_type: str):
     results = []
     for uploaded_file in uploaded_files:
@@ -237,6 +276,11 @@ def render_result(result):
 def main():
     inject_styles()
     render_hero()
+    available_configs = get_available_model_configs()
+    available_models = []
+    for config in available_configs:
+        if config["model_name"] not in available_models:
+            available_models.append(config["model_name"])
 
     with st.sidebar:
         st.markdown("## Configuration")
@@ -270,15 +314,48 @@ def main():
             accept_multiple_files=True,
         )
 
-        model_name = st.selectbox("เลือกโมเดล", options=[item["key"] for item in MODEL_OPTIONS], format_func=lambda key: next(item["label"] for item in MODEL_OPTIONS if item["key"] == key))
-        attention_type = st.selectbox("เลือก Attention", options=ATTENTION_TYPES)
+        if available_models:
+            recommended = get_recommended_model_config()
+            default_model_index = 0
+            if recommended and recommended["model_name"] in available_models:
+                default_model_index = available_models.index(recommended["model_name"])
+
+            model_name = st.selectbox(
+                "เลือกโมเดล",
+                options=available_models,
+                index=default_model_index,
+                format_func=get_model_label,
+            )
+            available_attentions = [
+                attention
+                for attention in ATTENTION_TYPES
+                if any(
+                    config["model_name"] == model_name and config["attention_type"] == attention
+                    for config in available_configs
+                )
+            ]
+            default_attention_index = 0
+            if recommended and recommended["model_name"] == model_name:
+                if recommended["attention_type"] in available_attentions:
+                    default_attention_index = available_attentions.index(recommended["attention_type"])
+
+            attention_type = st.selectbox(
+                "เลือก Attention",
+                options=available_attentions,
+                index=default_attention_index,
+            )
+            st.caption(f"พร้อมใช้งานบนเครื่อง/เซิร์ฟเวอร์นี้ {len(available_configs)} ชุดโมเดล")
+        else:
+            model_name = None
+            attention_type = None
+            render_deployment_help()
 
         st.markdown(
             '<div class="sidebar-note"><strong>Supported Inputs</strong><br>PNG, JPG, TIFF, BMP, WEBP, HEIC, PDF และ DICOM (.dcm, .dicom, .ima)</div>',
             unsafe_allow_html=True,
         )
 
-        run_clicked = st.button("Run Inference", width="stretch", type="primary")
+        run_clicked = st.button("Run Inference", width="stretch", type="primary", disabled=not available_configs)
 
     if "batch_results" not in st.session_state:
         st.session_state.batch_results = []
@@ -287,9 +364,16 @@ def main():
         if not uploaded_files:
             st.warning("กรุณาอัปโหลดอย่างน้อย 1 ไฟล์ก่อนค่ะ")
         else:
-            with st.spinner("กำลังรันโมเดลและสร้าง CAM สำหรับหลายไฟล์อยู่ค่ะ..."):
-                st.session_state.batch_results = run_batch_prediction(uploaded_files, model_name, attention_type)
-            st.success(f"รันเสร็จแล้วทั้งหมด {len(st.session_state.batch_results)} ไฟล์")
+            try:
+                with st.spinner("กำลังรันโมเดลและสร้าง CAM สำหรับหลายไฟล์อยู่ค่ะ..."):
+                    st.session_state.batch_results = run_batch_prediction(uploaded_files, model_name, attention_type)
+                st.success(f"รันเสร็จแล้วทั้งหมด {len(st.session_state.batch_results)} ไฟล์")
+            except FileNotFoundError as exc:
+                st.session_state.batch_results = []
+                st.error(str(exc))
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                st.session_state.batch_results = []
+                st.error(f"เกิดข้อผิดพลาดระหว่างรันโมเดล: {exc}")
 
     if not st.session_state.batch_results:
         st.info("อัปโหลดภาพแล้วกด Run Inference เพื่อเริ่มดูผลลัพธ์ค่ะ")

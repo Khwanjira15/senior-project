@@ -48,6 +48,7 @@ MODEL_OPTIONS = [
     {"key": "MobileNetV3-Large", "label": "MobileNetV3-Large"},
     {"key": "EfficientNetV2-S", "label": "EfficientNetV2-S"},
 ]
+MODEL_LABELS = {item["key"]: item["label"] for item in MODEL_OPTIONS}
 
 MODEL_CACHE: Dict[Tuple[str, str], Tuple[nn.Module, str]] = {}
 
@@ -609,6 +610,46 @@ def get_checkpoint_path(model_name: str, attention_type: str) -> Path:
     if attention_type == "Baseline":
         return RESULTS_BASELINE_DIR / f"{model_name}_Baseline" / f"{model_name}_final.pth"
     return RESULTS_ATTENTION_DIR / f"{model_name}_{attention_type}" / f"{model_name}_final.pth"
+
+
+def get_model_label(model_name: str) -> str:
+    return MODEL_LABELS.get(model_name, model_name)
+
+
+def get_available_model_configs():
+    configs = []
+    for model in MODEL_OPTIONS:
+        for attention_type in ATTENTION_TYPES:
+            checkpoint_path = get_checkpoint_path(model["key"], attention_type)
+            if checkpoint_path.exists():
+                configs.append(
+                    {
+                        "model_name": model["key"],
+                        "model_label": model["label"],
+                        "attention_type": attention_type,
+                        "checkpoint_path": checkpoint_path,
+                    }
+                )
+    return configs
+
+
+def get_recommended_model_config():
+    preferred_order = [
+        ("MobileNet", "ECA"),
+        ("MobileNet", "Baseline"),
+        ("MobileNetV3-Large", "ECA"),
+        ("MobileNetV3-Large", "Baseline"),
+        ("EfficientNet-B0", "ECA"),
+        ("EfficientNet-B0", "Baseline"),
+    ]
+    available_map = {
+        (config["model_name"], config["attention_type"]): config
+        for config in get_available_model_configs()
+    }
+    for key in preferred_order:
+        if key in available_map:
+            return available_map[key]
+    return next(iter(available_map.values()), None)
 
 
 def get_target_module(model, module_name):
