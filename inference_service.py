@@ -37,8 +37,8 @@ ARCHIVE_DIR = BASE_DIR / "archive"
 RESULTS_BASELINE_DIR = BASE_DIR / "Results_PyTorch_Baseline4"
 RESULTS_ATTENTION_DIR = BASE_DIR / "Results_PyTorch_Attention4"
 IMAGE_SIZE = (224, 224)
-CLASS_NAMES = sorted([p.name for p in (ARCHIVE_DIR / "train").iterdir() if p.is_dir()])
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEFAULT_CLASS_NAMES = ["normal", "pneumonia", "tuberculosis"]
 ATTENTION_TYPES = ["Baseline", "SE", "CBAM", "ECA", "BAM", "CoordAtt"]
 MODEL_OPTIONS = [
     {"key": "ResNet50", "label": "ResNet50"},
@@ -92,6 +92,18 @@ DIRECT_PIL_EXTENSIONS = {
 }
 SIPS_CONVERTIBLE_EXTENSIONS = {".heic", ".heif", ".avif", ".pdf"}
 QUICKLOOK_CONVERTIBLE_EXTENSIONS = {".dcm", ".dicom", ".ima"}
+
+
+def discover_class_names() -> list[str]:
+    train_dir = ARCHIVE_DIR / "train"
+    if train_dir.is_dir():
+        discovered = sorted([p.name for p in train_dir.iterdir() if p.is_dir()])
+        if discovered:
+            return discovered
+    return DEFAULT_CLASS_NAMES
+
+
+CLASS_NAMES = discover_class_names()
 
 eval_transform = transforms.Compose(
     [
@@ -788,7 +800,10 @@ def load_model(model_name: str, attention_type: str):
 
     checkpoint_path = get_checkpoint_path(model_name, attention_type)
     if not checkpoint_path.exists():
-        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        raise FileNotFoundError(
+            "Model checkpoint not found in the deployed app. Uploading images will work only after the trained "
+            f"weights are included in the repository or loaded from external storage. Missing file: {checkpoint_path}"
+        )
 
     model, last_conv = build_model(model_name, attention_type)
     state_dict = torch.load(checkpoint_path, map_location=DEVICE)
