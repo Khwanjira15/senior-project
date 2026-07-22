@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import os
 import subprocess
 import tempfile
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -51,6 +53,7 @@ MODEL_OPTIONS = [
 MODEL_LABELS = {item["key"]: item["label"] for item in MODEL_OPTIONS}
 
 MODEL_CACHE: Dict[Tuple[str, str], Tuple[nn.Module, str]] = {}
+CHECKPOINT_DOWNLOAD_DIR = Path(tempfile.gettempdir()) / "clinical-ai-checkpoints"
 
 THORAX_CROP_BOX = (0.15, 0.05, 0.85, 0.95)
 CAM_LUNG_PRIOR_STRENGTH = 0.60
@@ -612,6 +615,52 @@ def get_checkpoint_path(model_name: str, attention_type: str) -> Path:
     return RESULTS_ATTENTION_DIR / f"{model_name}_{attention_type}" / f"{model_name}_final.pth"
 
 
+def get_checkpoint_env_var_name(model_name: str, attention_type: str) -> str:
+    normalized_model = model_name.upper().replace("-", "_")
+    normalized_attention = attention_type.upper().replace("-", "_")
+    return f"CHECKPOINT_URL_{normalized_model}_{normalized_attention}"
+
+
+def get_external_checkpoint_url(model_name: str, attention_type: str) -> Optional[str]:
+    env_var_name = get_checkpoint_env_var_name(model_name, attention_type)
+    return os.getenv(env_var_name)
+
+
+def has_checkpoint_source(model_name: str, attention_type: str) -> bool:
+    checkpoint_path = get_checkpoint_path(model_name, attention_type)
+    if checkpoint_path.exists():
+        return True
+    return bool(get_external_checkpoint_url(model_name, attention_type))
+
+
+def download_external_checkpoint(model_name: str, attention_type: str, checkpoint_url: str) -> Path:
+    CHECKPOINT_DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    cache_key = hashlib.sha256(checkpoint_url.encode("utf-8")).hexdigest()[:16]
+    checkpoint_path = CHECKPOINT_DOWNLOAD_DIR / f"{model_name}_{attention_type}_{cache_key}.pth"
+    if checkpoint_path.exists():
+        return checkpoint_path
+
+    with urllib.request.urlopen(checkpoint_url) as response, checkpoint_path.open("wb") as output_file:
+        output_file.write(response.read())
+    return checkpoint_path
+
+
+def resolve_checkpoint_path(model_name: str, attention_type: str) -> Path:
+    checkpoint_path = get_checkpoint_path(model_name, attention_type)
+    if checkpoint_path.exists():
+        return checkpoint_path
+
+    checkpoint_url = get_external_checkpoint_url(model_name, attention_type)
+    if checkpoint_url:
+        return download_external_checkpoint(model_name, attention_type, checkpoint_url)
+
+    env_var_name = get_checkpoint_env_var_name(model_name, attention_type)
+    raise FileNotFoundError(
+        "Model checkpoint not found in the deployed app. Add the local file to the repository or set the "
+        f"environment variable {env_var_name} to a downloadable .pth URL. Missing local file: {checkpoint_path}"
+    )
+
+
 def get_model_label(model_name: str) -> str:
     return MODEL_LABELS.get(model_name, model_name)
 
@@ -621,7 +670,7 @@ def get_available_model_configs():
     for model in MODEL_OPTIONS:
         for attention_type in ATTENTION_TYPES:
             checkpoint_path = get_checkpoint_path(model["key"], attention_type)
-            if checkpoint_path.exists():
+            if has_checkpoint_source(model["key"], attention_type):
                 configs.append(
                     {
                         "model_name": model["key"],
@@ -839,12 +888,7 @@ def load_model(model_name: str, attention_type: str):
     if cache_key in MODEL_CACHE:
         return MODEL_CACHE[cache_key]
 
-    checkpoint_path = get_checkpoint_path(model_name, attention_type)
-    if not checkpoint_path.exists():
-        raise FileNotFoundError(
-            "Model checkpoint not found in the deployed app. Uploading images will work only after the trained "
-            f"weights are included in the repository or loaded from external storage. Missing file: {checkpoint_path}"
-        )
+    checkpoint_path = resolve_checkpoint_path(model_name, attention_type)
 
     model, last_conv = build_model(model_name, attention_type)
     state_dict = torch.load(checkpoint_path, map_location=DEVICE)

@@ -219,6 +219,12 @@ def render_deployment_help():
         )
 
 
+def format_attention_label(attention_type: str, is_available: bool) -> str:
+    if is_available:
+        return attention_type
+    return f"{attention_type} (ไม่มีบน Cloud)"
+
+
 def run_batch_prediction(uploaded_files, model_name: str, attention_type: str):
     results = []
     for uploaded_file in uploaded_files:
@@ -277,10 +283,11 @@ def main():
     inject_styles()
     render_hero()
     available_configs = get_available_model_configs()
-    available_models = []
-    for config in available_configs:
-        if config["model_name"] not in available_models:
-            available_models.append(config["model_name"])
+    available_pairs = {
+        (config["model_name"], config["attention_type"])
+        for config in available_configs
+    }
+    model_options = [item["key"] for item in MODEL_OPTIONS]
 
     with st.sidebar:
         st.markdown("## Configuration")
@@ -314,40 +321,56 @@ def main():
             accept_multiple_files=True,
         )
 
-        if available_models:
+        if model_options:
             recommended = get_recommended_model_config()
             default_model_index = 0
-            if recommended and recommended["model_name"] in available_models:
-                default_model_index = available_models.index(recommended["model_name"])
+            if recommended and recommended["model_name"] in model_options:
+                default_model_index = model_options.index(recommended["model_name"])
 
             model_name = st.selectbox(
                 "เลือกโมเดล",
-                options=available_models,
+                options=model_options,
                 index=default_model_index,
                 format_func=get_model_label,
             )
-            available_attentions = [
-                attention
+            attention_status = {
+                attention: (model_name, attention) in available_pairs
                 for attention in ATTENTION_TYPES
-                if any(
-                    config["model_name"] == model_name and config["attention_type"] == attention
-                    for config in available_configs
-                )
-            ]
+            }
+            selected_model_has_any_available = any(attention_status.values())
+
+            attention_options = ATTENTION_TYPES[:]
             default_attention_index = 0
-            if recommended and recommended["model_name"] == model_name:
-                if recommended["attention_type"] in available_attentions:
-                    default_attention_index = available_attentions.index(recommended["attention_type"])
+            if recommended and recommended["model_name"] == model_name and recommended["attention_type"] in attention_options:
+                default_attention_index = attention_options.index(recommended["attention_type"])
+            elif not attention_status.get(attention_options[default_attention_index], False):
+                for idx, attention in enumerate(attention_options):
+                    if attention_status[attention]:
+                        default_attention_index = idx
+                        break
 
             attention_type = st.selectbox(
                 "เลือก Attention",
-                options=available_attentions,
+                options=attention_options,
                 index=default_attention_index,
+                format_func=lambda attention: format_attention_label(attention, attention_status[attention]),
             )
-            st.caption(f"พร้อมใช้งานบนเครื่อง/เซิร์ฟเวอร์นี้ {len(available_configs)} ชุดโมเดล")
+            selected_config_available = attention_status[attention_type]
+            if selected_model_has_any_available:
+                st.caption(
+                    f"โมเดลนี้พร้อมใช้งาน {sum(attention_status.values())}/{len(ATTENTION_TYPES)} attention"
+                )
+            else:
+                st.caption("โมเดลนี้ยังไม่มีไฟล์น้ำหนักบน Cloud")
+
+            if not selected_config_available:
+                st.warning(
+                    f"{get_model_label(model_name)} + {attention_type} ยังไม่มีไฟล์โมเดลอยู่บน Streamlit Cloud ค่ะ"
+                )
         else:
             model_name = None
             attention_type = None
+            selected_config_available = False
             render_deployment_help()
 
         st.markdown(
@@ -355,7 +378,12 @@ def main():
             unsafe_allow_html=True,
         )
 
-        run_clicked = st.button("Run Inference", width="stretch", type="primary", disabled=not available_configs)
+        run_clicked = st.button(
+            "Run Inference",
+            width="stretch",
+            type="primary",
+            disabled=not available_configs or not selected_config_available,
+        )
 
     if "batch_results" not in st.session_state:
         st.session_state.batch_results = []
